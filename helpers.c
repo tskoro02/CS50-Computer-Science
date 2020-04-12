@@ -1,8 +1,21 @@
 #include "helpers.h"
 
-#define Y (i + k)
-#define X (j + l)
+#define HYPO(a, b) sqrt((a) * (a) + (b) * b)
 
+typedef struct Kernel
+{
+    int x[9];
+    int y[9];
+}
+Kernel;
+
+typedef struct Gvalues
+{
+    double red;
+    double green;
+    double blue;
+}
+Gvalues;
 
 // Convert image to grayscale
 void grayscale(int height, int width, RGBTRIPLE image[height][width])
@@ -42,15 +55,15 @@ void blur_convert(int height, int width, RGBTRIPLE tmp[height][width],
     double blue = 0;
     double green = 0;
 
-    for (int k = -1; k <= 1; k++)
+    for (int k = i - 1; k <= i + 1; k++)
     {
-        for (int l = -1; l <= 1; l++)
+        for (int l = j - 1; l <= j + 1; l++)
         {
-            if (Y >= 0 && Y < height && X >= 0 && X < width)
+            if (k >= 0 && k < height && l >= 0 && l < width)
             {
-                red += tmp[Y][X].rgbtRed;
-                blue += tmp[Y][X].rgbtBlue;
-                green += tmp[Y][X].rgbtGreen;
+                red += tmp[k][l].rgbtRed;
+                blue += tmp[k][l].rgbtBlue;
+                green += tmp[k][l].rgbtGreen;
                 count++;
             }
         }
@@ -88,32 +101,25 @@ void blur(int height, int width, RGBTRIPLE image[height][width])
 
 }
 
-void round_up(double *value)
+BYTE round_pixel(double value)
 {
-    if (*value > 0xff)
-        *value = 0xff;
-    *value = round(*value);
-    return;
+    if (value > 0xff)
+        return 0xff;
+    else 
+        return round(value);
 }
 
-void compute_edges(int height, int width, RGBTRIPLE tmp[height][width],
-                   RGBTRIPLE image[height][width], int i, int j)
+void compute_g(double *gx, double *gy, BYTE pixel_grid, Kernel kernel, int grid)
 {
-    typedef struct Kernel
-    {
-        int x[9];
-        int y[9];
-    }
-    Kernel;
+    *gx += pixel_grid * kernel.x[grid];
+    *gy += pixel_grid * kernel.y[grid];
+}
 
-    typedef struct Gvalues
-    {
-        double red;
-        double green;
-        double blue;
-    }
-    Gvalues;
 
+void compute_edges(int height, int width, RGBTRIPLE tmp[height][width],
+                   RGBTRIPLE *pixel, int i, int j)
+{
+   
     static const Kernel kernel = {
      .x = {-1, 0, 1, -2, 0, 2, -1, 0, 1},
      .y = {-1, -2, -1, 0, 0, 0, 1, 2, 1}
@@ -133,36 +139,30 @@ void compute_edges(int height, int width, RGBTRIPLE tmp[height][width],
 
     int grid_position = 0;
 
-    for (int k = -1; k <= 1; k++)
+    for (int k = (i - 1); k <= (i + 1); k++)
     {
-        for (int l = -1; l <= 1; l++)
+        for (int l = (j - 1); l <= (j + 1); l++)
         {
-            if (Y >= 0 && Y < height && X >= 0 && X < width)
+            if (k >= 0 && k < height && l >= 0 && l < width)
             {
-                gx.red += tmp[Y][X].rgbtRed * kernel.x[grid_position];
-                gx.blue += tmp[Y][X].rgbtBlue * kernel.x[grid_position];
-                gx.green += tmp[Y][X].rgbtGreen * kernel.x[grid_position];
-                gy.red += tmp[Y][X].rgbtRed * kernel.y[grid_position];
-                gy.blue += tmp[Y][X].rgbtBlue * kernel.y[grid_position];
-                gy.green += tmp[Y][X].rgbtGreen * kernel.y[grid_position];
+                compute_g(&gx.red, &gy.red, tmp[k][l].rgbtRed, kernel, grid_position);
+                compute_g(&gx.green, &gy.green, tmp[k][l].rgbtGreen, kernel, grid_position);
+                compute_g(&gx.blue, &gy.blue, tmp[k][l].rgbtBlue, kernel, grid_position);
             }
             grid_position++;
         }
     }
 
     Gvalues gt = {
-        .red = sqrt(gx.red * gx.red + gy.red * gy.red),
-        .blue = sqrt(gx.blue * gx.blue + gy.blue * gy.blue),
-        .green = sqrt(gx.green * gx.green + gy.green * gy.green),
+        .red = HYPO(gx.red, gy.red),
+        .blue = HYPO(gx.blue, gy.blue),
+        .green = HYPO(gx.green, gy.green)
     };
 
-    round_up(&gt.red);
-    round_up(&gt.green);
-    round_up(&gt.blue);
 
-    image[i][j].rgbtGreen =  gt.green;
-    image[i][j].rgbtBlue =  gt.blue;
-    image[i][j].rgbtRed = gt.red;
+    pixel->rgbtGreen =  round_pixel(gt.green);
+    pixel->rgbtBlue =  round_pixel(gt.blue);
+    pixel->rgbtRed = round_pixel(gt.red);
 }
 
 // Detect edges
@@ -181,7 +181,7 @@ void edges(int height, int width, RGBTRIPLE image[height][width])
     {
         for (int j = 0; j < width; j++)
         {
-            compute_edges(height, width, tmp, image, i, j);
+            compute_edges(height, width, tmp, &image[i][j], i, j);
         }
     }
 
